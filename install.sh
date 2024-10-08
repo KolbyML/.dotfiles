@@ -68,3 +68,5 @@ flatpak install flathub org.gnome.Extensions
 
 # Install anki
 ./bash_installs/anki.sh
+
+echo "please install Mozc manually to get japanese keyboard"
