@@ -1,0 +1,5 @@
+**/__pycache__/
+
+.local/share/gnome-shell/application_state*
+.local/share/gnome-shell/notifications*
+.local/share/gnome-shell/update-check*

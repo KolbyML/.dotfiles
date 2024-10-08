@@ -18,6 +18,11 @@ sudo apt install git
 sudo apt install stow
 ```
 
+### Flatpak
+
+https://flatpak.org/setup/
+
+
 ## Installation
 
 First, check out the dotfiles repo in your $HOME directory using git
@@ -31,4 +36,5 @@ then use GNU stow to create symlinks
 
 ```
 $ stow .
+$ ./install.sh
 ```
