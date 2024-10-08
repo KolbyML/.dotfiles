@@ -1,0 +1,16 @@
+StLabel.clock {
+   margin: 0px;
+   padding:0px;
+}
+
+.clock-display { 
+  -y-offset: 2px
+  color: green;
+  background: #fff; 
+}
+
+
+.clock-display-box .clock {
+    padding-left: 0em; 
+    padding-right: 0.2em; 
+}
