@@ -52,13 +52,13 @@ flatpak install flathub org.videolan.VLC
 flatpak install flathub org.qbittorrent.qBittorrent
 
 # Install Flatseal
-flatpak run com.github.tchx84.Flatseal
+flatpak install com.github.tchx84.Flatseal
 
 # Install Element
 flatpak install flathub im.riot.Riot
 
 # Install Steam
-flatpak run com.valvesoftware.Steam
+flatpak install com.valvesoftware.Steam
 
 # Install Zoom
 flatpak install flathub us.zoom.Zoom
