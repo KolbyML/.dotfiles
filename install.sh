@@ -69,4 +69,14 @@ flatpak install flathub org.gnome.Extensions
 # Install anki
 ./bash_installs/anki.sh
 
-echo "please install Mozc manually to get japanese keyboard"
+# Install Resources
+flatpak install flathub net.nokyan.Resources
+
+# Install Hidamari (video wallpapers)
+flatpak install flathub io.github.jeffshee.Hidamari
+
+echo "You might want to install the following manually:"
+echo "1. Mozc (Japanese Keyboard)"
+echo "2. Neofetch"
+echo "3. htop"
+echo "4. Gnome Tweaks"
