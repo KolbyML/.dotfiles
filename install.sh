@@ -11,10 +11,6 @@ rm -rf segoe-ui-linux
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-
-# Install Gearlever (A Manager for AppImage)
-flatpak install flathub it.mijorus.gearlever
-
 # Install wallpaper to windows 10
 sudo cp wallpapers/windows10.jpg /usr/share/backgrounds/windows10.jpg
 gsettings set org.gnome.desktop.background picture-uri-dark "file:///usr/share/backgrounds/windows10.jpg"
@@ -30,8 +26,11 @@ sudo sed -i '/^\[Icon Theme\]$/,/^\[/{s/Inherits=.*/Inherits=Windows10Light/}' /
 # Install Flathub
 flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
-# Install Discord
-flatpak install flathub com.discordapp.Discord
+# Install Gearlever (A Manager for AppImage)
+flatpak install flathub it.mijorus.gearlever
+
+# Install Vencord (Discord alternative)
+flatpak install flathub dev.vencord.Vesktop
 
 # Install Github Desktop
 flatpak install flathub io.github.shiftey.Desktop
