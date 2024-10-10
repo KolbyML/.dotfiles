@@ -62,8 +62,8 @@ flatpak install com.valvesoftware.Steam
 # Install Zoom
 flatpak install flathub us.zoom.Zoom
 
-# Install Gnome Extensions
-flatpak install flathub org.gnome.Extensions
+# Install Gnome Extensions Manager (Better Extension app)
+flatpak install flathub com.mattjakeman.ExtensionManager
 
 # Install anki
 ./bash_installs/anki.sh
@@ -74,8 +74,16 @@ flatpak install flathub net.nokyan.Resources
 # Install Hidamari (video wallpapers)
 flatpak install flathub io.github.jeffshee.Hidamari
 
+# Install PinApp (To change flatpak icons)
+flatpak install flathub io.github.fabrialberio.pinapp
+
 echo "You might want to install the following manually:"
 echo "1. Mozc (Japanese Keyboard)"
 echo "2. Neofetch"
 echo "3. htop"
 echo "4. Gnome Tweaks"
+
+echo ""
+
+echo "Use this if gnome extensions havent updated their version flag yet:"
+echo "gsettings set org.gnome.shell disable-extension-version-validation true"
