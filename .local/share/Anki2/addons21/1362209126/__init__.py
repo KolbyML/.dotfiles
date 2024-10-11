@@ -52,9 +52,10 @@ headers = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
 }
 
+
+public_api_key = '0b8aa35d-b521-4fe0-bf0e-2ae07d826acf'
+
 # add custom model if needed
-
-
 def addCustomModel(name, col):
 
     # create custom model for imported deck
@@ -446,7 +447,7 @@ class QuizletWindow(QWidget):
                         note["BackAudio"] = "[sound:" + file_name + "]"
 
                 if item.get('imageUrl'):
-                    file_name = self.fileDownloader(item["imageUrl"])
+                    file_name = self.fileDownloader(item["imageUrl"], fallback=True)
                     if file_name:
                         note["Image"] += '<div><img src="{0}"></div>'.format(
                             file_name)
@@ -485,10 +486,10 @@ class QuizletWindow(QWidget):
             try:
                 return download_media(url, file_name, request_headers)
             except urllib2.HTTPError as e:
-                if fallback and not fallback_call and self.config.get('license'):
+                if fallback and not fallback_call:
                     fallback_call = True
                     url = "https://quizlet-proxy.proto.click/quizlet-media?url={0}".format(urllib.parse.quote(url))
-                    request_headers["x-api-key"] = self.config.get("license")
+                    request_headers["x-api-key"] = self.config.get("license", public_api_key)
                     continue
                 if skip_errors:
                     return None
