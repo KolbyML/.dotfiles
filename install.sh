@@ -92,3 +92,4 @@ echo "gsettings set org.gnome.shell disable-extension-version-validation true"
 sudo update-alternatives --config x-terminal-emulator
 gsettings set org.gnome.desktop.default-applications.terminal exec 'kitty'
 echo "https://github.com/Stunkymonkey/nautilus-open-any-terminal install this"
+echo "Coloring is fixed via xterm-color|*-256color|xterm-kitty) color_prompt=yes;; in 40 line (default ~/.bashrc). to add color"
