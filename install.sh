@@ -91,3 +91,4 @@ echo "gsettings set org.gnome.shell disable-extension-version-validation true"
 # Update default terminal
 sudo update-alternatives --config x-terminal-emulator
 gsettings set org.gnome.desktop.default-applications.terminal exec 'kitty'
+echo "https://github.com/Stunkymonkey/nautilus-open-any-terminal install this"
