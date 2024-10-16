@@ -6,3 +6,5 @@ dconf dump /org/gnome/shell/extensions/date-menu-formatter/ > date-menu-formatte
 echo "date-menu-formatter.conf dumped"
 dconf dump /org/gnome/shell/extensions/blur-my-shell/ > blur-my-shell.conf
 echo "blur-my-shell.conf dumped"
+dconf dump /org/gnome/shell/extensions/tiling-assistant/ > tiling-assistant.conf
+echo "tiling-assistant.conf dumped"
