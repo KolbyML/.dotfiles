@@ -1,26 +1,27 @@
 import base64
 import json
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 import anki
 from anki.template import TemplateRenderContext
 from anki.notes import Note
 from anki.cards import Card
+from anki.collection import OpChanges
 import aqt
 from aqt import mw, gui_hooks
 from aqt.editor import Editor
 from aqt.qt import QClipboard
 from aqt.reviewer import Reviewer, ReviewerBottomBar
+from aqt.browser.previewer import MultiCardPreviewer
 from aqt.utils import showText, tooltip
 from aqt.operations.note import update_note
 
-
-from .semieditor import semiEditorWebView
+from .semieditor import SemiEditorWebView
 from .ankiaddonconfig import ConfigManager
 
 ERROR_MSG = "ERROR - Edit Field During Review Cloze\n{}"
 
-editorwv = semiEditorWebView()
+editorwv = SemiEditorWebView()
 
 
 class FldNotFoundError(Exception):
@@ -67,7 +68,12 @@ def serve_card(txt: str, card: Card, kind: str) -> str:
     return txt + "<script>EFDRC.serveCard()</script>"
 
 
-def saveField(note: Note, fld: str, val: str) -> None:
+def save_field_and_reload(
+        note: Note, 
+        fld: str, 
+        val: str, 
+        context: Union[Reviewer, MultiCardPreviewer]
+) -> None:
     if fld == "Tags":
         # aqt.editor.Editor.saveTags
         tags = mw.col.tags.split(val)
@@ -83,7 +89,17 @@ def saveField(note: Note, fld: str, val: str) -> None:
             return
         note[fld] = txt
     # 2.1.45+
-    update_note(parent=mw, note=note).run_in_background()
+
+    def on_success(changes: OpChanges) -> None:
+        reload_review_context(context)
+    
+    def on_failure(exc: Exception) -> None:
+        reload_review_context(context)
+        raise exc
+
+    update_note(
+        parent=mw, note=note
+    ).success(on_success).failure(on_failure).run_in_background()
 
 
 def get_value(note: Note, fld: str) -> str:
@@ -117,26 +133,47 @@ def reload_reviewer(reviewer: Reviewer) -> None:
     elif reviewer.state == "answer":
         reviewer._showAnswer()
 
+def reload_previewer(previewer: MultiCardPreviewer) -> None:
+    # previewer may skip rendering if modified note's mtime has not changed
+    previewer._last_state = None
+    previewer.render_card()
+
+def reload_review_context(context: Union[Reviewer, MultiCardPreviewer]) -> None:
+    if isinstance(context, Reviewer):
+        reload_reviewer(context)
+    else:
+        reload_previewer(context)
 
 def handle_pycmd_message(
     handled: Tuple[bool, Any], message: str, context: Any
 ) -> Tuple[bool, Any]:
-    if not isinstance(context, Reviewer):
+    if isinstance(context, Reviewer):
+        card = context.card
+        web: "aqt.webview.AnkiWebView" = context.web
+        reviewer = context
+        previewer = None
+    elif isinstance(context, MultiCardPreviewer):
+        if context._web is None:
+            return handled
+        card = context.card()
+        web = context._web        
+        reviewer = None
+        previewer = context
+    else:
         return handled
-    reviewer: Reviewer = context
+
     if message.startswith("EFDRC#"):
         errmsg = "Something unexpected occured. The edit may not have been saved."
         nidstr, fld, new_val = message.replace("EFDRC#", "").split("#", 2)
         nid = int(nidstr)
-        note = reviewer.card.note()
+        note = card.note()
         if note.id != nid:
             # nid may be note id of previous reviewed card
             tooltip(ERROR_MSG.format(errmsg))
             return (True, None)
         fld = base64.b64decode(fld, validate=True).decode("utf-8")
         try:
-            saveField(note, fld, new_val)
-            reload_reviewer(reviewer)
+            save_field_and_reload(note, fld, new_val, context)
             return (True, None)
         except FldNotFoundError as e:
             tooltip(ERROR_MSG.format(str(e)))
@@ -147,28 +184,29 @@ def handle_pycmd_message(
     elif message.startswith("EFDRC!focuson#"):
         fld = message.replace("EFDRC!focuson#", "")
         decoded_fld = base64.b64decode(fld, validate=True).decode("utf-8")
-        note = reviewer.card.note()
+        note = card.note()
         try:
             val = get_value(note, decoded_fld)
         except FldNotFoundError as e:
             tooltip(ERROR_MSG.format(str(e)))
             return (True, None)
         encoded_val = base64.b64encode(val.encode("utf-8")).decode("ascii")
-        reviewer.web.eval(f"EFDRC.showRawField('{encoded_val}', '{note.id}', '{fld}')")
+        web.eval(f"EFDRC.showRawField('{encoded_val}', '{note.id}', '{fld}')")
 
         # Reset timer from Speed Focus Mode add-on.
-        reviewer.bottom.web.eval("window.EFDRCResetTimer()")
+        if reviewer is not None:
+            reviewer.bottom.web.eval("window.EFDRCResetTimer()")
         return (True, None)
 
     elif message == "EFDRC!reload":
-        reload_reviewer(reviewer)
+        reload_review_context(context)
         return (True, None)
         # Catch ctrl key presses from bottom.web.
     elif message == "EFDRC!ctrldown":
-        reviewer.web.eval("EFDRC.ctrldown()")
+        web.eval("EFDRC.ctrldown()")
         return (True, None)
     elif message == "EFDRC!ctrlup":
-        reviewer.web.eval("EFDRC.ctrlup()")
+        web.eval("EFDRC.ctrlup()")
         return (True, None)
 
     elif message == "EFDRC!paste":
@@ -178,7 +216,7 @@ def handle_pycmd_message(
         print(internal)
         html = editorwv.editor._pastePreFilter(html, internal)
         print(html)
-        reviewer.web.eval(
+        web.eval(
             "EFDRC.pasteHTML(%s, %s);" % (json.dumps(html), json.dumps(internal))
         )
         return (True, None)
@@ -196,7 +234,7 @@ def url_from_fname(file_name: str) -> str:
 
 
 def on_webview(web_content: aqt.webview.WebContent, context: Optional[Any]) -> None:
-    if isinstance(context, Reviewer):
+    if isinstance(context, Reviewer) or isinstance(context, MultiCardPreviewer):
         web_content.body += myRevHtml()
         web_content.body += f'<script type="module" src="{url_from_fname("editor/editor.js")}"></script>'
         js_contents = ["global_card.js", "resize.js"]

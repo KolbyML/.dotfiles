@@ -10,12 +10,11 @@ from .schedule.reschedule import reschedule
 from .schedule.postpone import postpone
 from .schedule.advance import advance
 from .schedule.flatten import flatten
-from .schedule.reset import clear_custom_data
+from .schedule.reset import clear_custom_data, clear_manual_rescheduling
 from .schedule.disperse_siblings import disperse_siblings
 from .schedule.easy_days import (
     easy_days,
     easy_day_for_sepcific_date,
-    easy_days_review_ratio,
 )
 from .schedule.remedy import remedy_hard_misuse, undo_remedy
 from .schedule import init_review_hook
@@ -110,31 +109,6 @@ menu_auto_disperse_after_reschedule = checkable(
 )
 
 
-def set_skip_manual_resched_cards(checked, _):
-    if config.skip_manual_resched_cards:
-        config.skip_manual_resched_cards = checked
-    else:
-        warning = (
-            "Due to the nature of Anki's database, FSRS Helper cannot distinguish among cards rescheduled by following operations:\n"
-            + "- Set due date\n"
-            + "- Reset (earlier called Forget)\n"
-            + "- 'Reschedule cards on change' in FSRS section of Deck Options\n\n"
-            + "When you enable this option, cards that were last modified by any of the above will be skipped during rescheduling."
-        )
-        checked = askUser(
-            warning,
-            title="Warning",
-        )
-        config.skip_manual_resched_cards = checked
-        menu_skip_manual_resched_cards.setChecked(checked)
-
-
-menu_skip_manual_resched_cards = checkable(
-    title="Skip manually rescheduled cards when rescheduling",
-    on_click=set_skip_manual_resched_cards,
-)
-
-
 def set_display_memory_state(checked, _):
     config.display_memory_state = checked
 
@@ -144,12 +118,16 @@ menu_display_memory_state = checkable(
 )
 
 
-def set_load_balance(checked, _):
-    config.load_balance = checked
+def set_show_steps_stats(checked, _):
+    if not config.show_steps_stats and not askUser(
+        "This feature would slow down the loading of the old stats page if you have a lot of reviews. Are you sure you want to enable it?"
+    ):
+        return
+    config.show_steps_stats = checked
 
 
-menu_load_balance = checkable(
-    title="Load Balance when rescheduling", on_click=set_load_balance
+menu_show_steps_stats = checkable(
+    title="Show steps stats", on_click=set_show_steps_stats
 )
 
 
@@ -179,6 +157,10 @@ add_action_to_gear(flatten, "Flatten future due cards")
 
 menu_reset = build_action(clear_custom_data, "Clear custom data in all cards")
 
+menu_clear_manual_rescheduling = build_action(
+    clear_manual_rescheduling, "Delete redundant manual revlog entries"
+)
+
 menu_disperse_siblings = build_action(disperse_siblings, "Disperse all siblings")
 
 menu_remedy_hard_misuse = build_action(remedy_hard_misuse, "Remedy")
@@ -202,7 +184,20 @@ menu_rate = build_action(rate_on_ankiweb, "Rate Add-on on AnkiWeb")
 
 
 def visualize_schedule(did=None):
-    openLink("https://open-spaced-repetition.github.io/anki_fsrs_visualizer/")
+    url = "https://open-spaced-repetition.github.io/anki_fsrs_visualizer"
+    deck = mw.col.decks.current()
+    if "conf" in deck:
+        config = mw.col.decks.get_config(deck["conf"])
+        retention = config["desiredRetention"]
+        fsrs_params = (
+            config["fsrsParams5"]
+            if "fsrsParams5" in config and len(config["fsrsParams5"]) > 0
+            else config["fsrsWeights"]
+        )
+        fsrs_params_string = ",".join(f"{x:.4f}" for x in fsrs_params)
+        url += f"/?w={fsrs_params_string}&m={retention}"
+
+    openLink(url)
 
 
 menu_visualize = build_action(visualize_schedule, "Visualize Your FSRS Schedule")
@@ -215,26 +210,47 @@ def sponsor(did=None):
 
 menu_sponsor = build_action(sponsor, "Sponsor the Author")
 
+
+def pass_fail(did=None):
+    openLink("https://ankiweb.net/shared/info/876946123")
+
+
+menu_pass_fail = build_action(pass_fail, "Pass/Fail")
+
+
+def ajt_card_management(did=None):
+    openLink("https://ankiweb.net/shared/info/1021636467")
+
+
+menu_ajt_card_management = build_action(ajt_card_management, "AJT Card Management")
+
+
+def search_stats_extended(did=None):
+    openLink("https://ankiweb.net/shared/info/1613056169")
+
+
+menu_search_stats_extended = build_action(
+    search_stats_extended, "Search Stats Extended"
+)
+
 menu_for_helper = mw.form.menuTools.addMenu("FSRS Helper")
 menu_for_helper.addAction(menu_auto_reschedule_after_sync)
 menu_for_helper.addAction(menu_auto_disperse_after_sync)
 menu_for_helper.addAction(menu_auto_disperse)
 menu_for_helper.addAction(menu_display_memory_state)
-menu_for_helper.addAction(menu_load_balance)
+menu_for_helper.addAction(menu_show_steps_stats)
 menu_for_helper.addAction(menu_auto_disperse_after_reschedule)
-menu_for_easy_days = menu_for_helper.addMenu(
-    "Less Anki on Easy Days (requires Load Balancing)"
-)
-menu_for_helper.addAction(menu_skip_manual_resched_cards)
+menu_for_easy_days = menu_for_helper.addMenu("Less Anki on Easy Days")
 menu_for_helper.addSeparator()
 menu_for_helper.addAction(menu_reschedule)
 menu_for_helper.addAction(menu_reschedule_recent)
 menu_for_helper.addAction(menu_postpone)
 menu_for_helper.addAction(menu_advance)
 menu_for_helper.addAction(menu_flatten)
-menu_for_helper.addAction(menu_reset)
 menu_for_helper.addAction(menu_disperse_siblings)
 menu_for_helper.addSeparator()
+menu_for_helper.addAction(menu_reset)
+menu_for_helper.addAction(menu_clear_manual_rescheduling)
 menu_for_remedy = menu_for_helper.addMenu("Remedy Hard Misuse")
 menu_for_remedy.addAction(menu_remedy_hard_misuse)
 menu_for_remedy.addAction(menu_undo_remedy)
@@ -245,32 +261,21 @@ if not config.has_rated:
     menu_for_helper.addAction(menu_rate)
 if not config.has_sponsored:
     menu_for_helper.addAction(menu_sponsor)
-
+menu_for_helper.addSeparator()
+menu_for_recommended_addons = menu_for_helper.addMenu("Recommended Add-ons")
+menu_for_recommended_addons.addAction(menu_pass_fail)
+menu_for_recommended_addons.addAction(menu_ajt_card_management)
+menu_for_recommended_addons.addAction(menu_search_stats_extended)
 
 menu_apply_easy_days = build_action(easy_days, "Apply easy days now")
 menu_apply_easy_days_for_specific_date = build_action(
     lambda did: easy_day_for_sepcific_date(did, config),
     "Apply easy days for specific dates",
 )
-menu_easy_days = build_action(
-    lambda did: easy_days_review_ratio(did, config), "Configure easy days"
-)
 
-
-def set_auto_easy_days(checked, _):
-    config.auto_easy_days = checked
-
-
-menu_for_auto_easy_days = checkable(
-    title="Auto apply easy days on closing collection",
-    on_click=set_auto_easy_days,
-)
 
 menu_for_easy_days.addAction(menu_apply_easy_days_for_specific_date)
 menu_for_easy_days.addAction(menu_apply_easy_days)
-menu_for_easy_days.addAction(menu_for_auto_easy_days)
-menu_for_easy_days.addSeparator()
-menu_for_easy_days.addAction(menu_easy_days)
 
 
 def adjust_menu():
@@ -282,12 +287,10 @@ def adjust_menu():
         menu_auto_disperse_after_sync.setChecked(config.auto_disperse_after_sync)
         menu_auto_disperse.setChecked(config.auto_disperse_when_review)
         menu_display_memory_state.setChecked(config.display_memory_state)
-        menu_load_balance.setChecked(config.load_balance)
+        menu_show_steps_stats.setChecked(config.show_steps_stats)
         menu_auto_disperse_after_reschedule.setChecked(
             config.auto_disperse_after_reschedule
         )
-        menu_skip_manual_resched_cards.setChecked(config.skip_manual_resched_cards)
-        menu_for_auto_easy_days.setChecked(config.auto_easy_days)
 
 
 @state_did_change.append

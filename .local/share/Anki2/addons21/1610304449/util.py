@@ -2,6 +2,7 @@ import re
 import unicodedata
 import collections
 import enum
+from colorsys import hsv_to_rgb
 
 from . import data
 
@@ -15,7 +16,7 @@ class SortOrder(enum.Enum):
 
     def pretty_value(self):
         return (
-            "order found",
+            "none",
             "unicode order",
             "score",
             "frequency",
@@ -23,7 +24,7 @@ class SortOrder(enum.Enum):
 
 cjk_re = re.compile("CJK (UNIFIED|COMPATIBILITY) IDEOGRAPH")
 def isKanji(unichar):
-    return bool(cjk_re.match(unicodedata.name(unichar, "")))
+    return bool(cjk_re.match(safe_unicodedata_name(unichar)))
 
 def scoreAdjust(score):
     score += 1
@@ -55,32 +56,15 @@ def addDataFromCard(unit, idx, card):
 def hsvrgbstr(h, s=0.8, v=0.9):
     def _256(x):
         return round(x * 256)
-    i = int(h*6.0)
-    f = (h*6.0) - i
-    p = v*(1.0 - s)
-    q = v*(1.0 - s*f)
-    t = v*(1.0 - s*(1.0-f))
-    i = i % 6
-    if i == 0:
-            return "#%0.2X%0.2X%0.2X" % (_256(v), _256(t), _256(p))
-    if i == 1:
-            return "#%0.2X%0.2X%0.2X" % (_256(q), _256(v), _256(p))
-    if i == 2:
-            return "#%0.2X%0.2X%0.2X" % (_256(p), _256(v), _256(t))
-    if i == 3:
-            return "#%0.2X%0.2X%0.2X" % (_256(p), _256(q), _256(v))
-    if i == 4:
-            return "#%0.2X%0.2X%0.2X" % (_256(t), _256(p), _256(v))
-    if i == 5:
-            return "#%0.2X%0.2X%0.2X" % (_256(v), _256(p), _256(q))
+    r, g, b = hsv_to_rgb(h, s, v)
+    return "#%0.2X%0.2X%0.2X" % (_256(r), _256(g), _256(b))
 
 def get_background_color(avg_interval, config_interval, count, missing = False):
     if count != 0:
-        return hsvrgbstr(scoreAdjust(avg_interval / config_interval)/2)
-    elif missing:
+        return hsvrgbstr(scoreAdjust(avg_interval / config_interval) / 2)
+    if missing:
         return "#EEE"
-    else:
-        return "#FFF"
+    return "#FFF"
 
 def get_font_css(config):
     if config.lang == "ja":
@@ -112,6 +96,9 @@ def get_search(config, char):
         search_url = config.visearch
     return search_url.replace("%s", char)
 
+def get_browse_command(char):
+    return "javascript:bridgeCommand('" + char + "');"
+
 def fields_to_query(fields):
     query_strings = []
     for field in fields:
@@ -125,3 +112,15 @@ def make_query(deck_ids, fields):
         query_strings.append("(did:" + str(deck_id) + " AND (" + fields_string + "))")
 
     return " OR ".join(query_strings)
+
+def safe_unicodedata_name(char, default = ""):
+    try:
+        return unicodedata.name(char)
+    except Exception:
+        return default
+
+def get_deck_name(mw, config):
+    deckname = config.did
+    if config.did != "*":
+        deckname = mw.col.decks.name(config.did)
+    return deckname

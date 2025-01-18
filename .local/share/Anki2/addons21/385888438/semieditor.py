@@ -13,16 +13,21 @@ from aqt.qt import QCursor, Qt
 myprogress = False
 
 
-class semiEditor(Editor):
+class SemiEditor(Editor):
     def __init__(self) -> None:
         self.mw = mw
         self.parentWindow = "EFDRCsemiedit"  # type: ignore
+        
+        # For compatibility with other addons (GH#125)
+        self.currentField = None
+        self.last_field_index = None
+        self.card = None
 
 
-class semiEditorWebView(EditorWebView):
+class SemiEditorWebView(EditorWebView):
     def __init__(self) -> None:
         self.mw = mw
-        self.editor = semiEditor()
+        self.editor = SemiEditor()
 
 
 def mystart(*args: Any, **kwargs: Any) -> Optional[ProgressDialog]:

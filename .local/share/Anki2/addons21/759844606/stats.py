@@ -1,6 +1,7 @@
 from anki.stats import CollectionStats
 from .configuration import Config
 from .utils import *
+from .steps import steps_stats
 
 
 def _line_now(i, a, b, bold=True):
@@ -22,8 +23,8 @@ def _lineTbl_now(i):
     return "<table>" + "".join(i) + "</table>"
 
 
-def retention_stability_load(lim) -> tuple:
-    elapse_stability_ivl_list = mw.col.db.all(
+def retention_stability(lim) -> tuple:
+    elapse_stability_list = mw.col.db.all(
         f"""
     SELECT 
         CASE WHEN odid==0
@@ -31,9 +32,6 @@ def retention_stability_load(lim) -> tuple:
             ELSE {mw.col.sched.today} - (odue - ivl)
         END
         ,json_extract(data, '$.s')
-        ,ivl 
-        ,(SELECT COUNT(*) FROM cards c2 WHERE c1.nid = c2.nid)
-        ,nid
     FROM cards c1
     WHERE queue != 0 AND queue != -1
     AND data != ''
@@ -43,34 +41,16 @@ def retention_stability_load(lim) -> tuple:
     )
     # x[0]: elapsed days
     # x[1]: stability
-    # x[2]: interval
-    # x[3]: same nid count
-    # x[4]: nid
-    elapse_stability_ivl_list = filter(
-        lambda x: x[1] is not None, elapse_stability_ivl_list
-    )
-    retention_stability_load_list = list(
+    retention_list = list(
         map(
-            lambda x: (
-                power_forgetting_curve(max(x[0], 0), x[1]),
-                x[1],
-                1 / max(1, x[2]),
-                x[3],
-                x[4],
-            ),
-            elapse_stability_ivl_list,
+            lambda x: power_forgetting_curve(max(x[0], 0), x[1]),
+            elapse_stability_list,
         )
     )
-    card_cnt = len(retention_stability_load_list)
-    note_cnt = len(set(x[4] for x in retention_stability_load_list))
+    card_cnt = len(retention_list)
     if card_cnt == 0:
-        return 0, 0, 0, 0, 0, 0, 0, 0
-    recall_sum = sum(item[0] for item in retention_stability_load_list)
-    stability_sum = sum(item[1] for item in retention_stability_load_list)
-    load_sum = sum(item[2] for item in retention_stability_load_list)
-    estimated_total_knowledge_notes = sum(
-        item[0] / item[3] for item in retention_stability_load_list
-    )
+        return 0, 0, 0
+    recall_sum = sum(retention_list)
 
     time_sum = mw.col.db.scalar(
         f"""
@@ -87,13 +67,8 @@ def retention_stability_load(lim) -> tuple:
     """
     )
     return (
-        recall_sum / card_cnt,
-        stability_sum / card_cnt,
-        load_sum,
         card_cnt,
         round(recall_sum),
-        estimated_total_knowledge_notes,
-        note_cnt,
         time_sum,
     )
 
@@ -107,7 +82,224 @@ def todayStats_new(self):
         + get_true_retention(self)
         + get_fsrs_stats(self)
         + get_retention_graph(self)
+        + get_steps_stats(self)
     )
+
+
+def get_steps_stats(self: CollectionStats):
+    config = Config()
+    config.load()
+    if not config.show_steps_stats:
+        return ""
+    start, days, chunk = self.get_start_end_chunk()
+    if days is not None:
+        period_lim = "first_id > %d" % (
+            (self.col.sched.day_cutoff - (days * chunk * 86400)) * 1000
+        )
+    else:
+        period_lim = ""
+    deck_lim = self._revlogLimit()
+    results = steps_stats(deck_lim, period_lim)
+
+    title = CollectionStats._title(
+        self,
+        "Steps Stats",
+        "Statistics for different first ratings during (re)learning steps",
+    )
+
+    html = """
+        <style>
+            td.trl { border: 1px solid; text-align: left; padding: 5px  }
+            td.trr { border: 1px solid; text-align: right; padding: 5px  }
+            td.trc { border: 1px solid; text-align: center; padding: 5px }
+            span.again { color: #f00 }
+            span.hard { color: #ff8c00 }
+            span.good { color: #008000 }
+            span.again-then-good { color: #fdd835 }
+            span.good-then-again { color: #007bff }
+        </style>
+        <table style="border-collapse: collapse;" cellspacing="0" cellpadding="2">
+            <tr>
+                <td class="trl" rowspan=2><b>State</b></td>
+                <td class="trl" rowspan=2><b>First Ratings</b></td>
+                <td class="trc" colspan=7><b>Delay And Retention Distribution</b></td>
+                <td class="trc" colspan=3><b>Summary</b></td>
+            </tr>
+            <tr>
+                <td class="trc"><b><span>R&#772;</span><sub>1</sub></b></td>
+                <td class="trc"><b>T<sub>25%</sub></b></td>
+                <td class="trc"><b><span>R&#772;</span><sub>2</sub></b></td>
+                <td class="trc"><b>T<sub>50%</sub></b></td>
+                <td class="trc"><b><span>R&#772;</span><sub>3</sub></b></td>
+                <td class="trc"><b>T<sub>75%</sub></b></td>
+                <td class="trc"><b><span>R&#772;</span><sub>4</sub></b></td>
+                <td class="trc"><b><span>R&#772;</span></b></td>
+                <td class="trc"><b>Stability</b></td>
+                <td class="trc"><b>Reviews</b></td>
+            </tr>"""
+
+    ratings = {
+        1: "again",
+        2: "hard",
+        3: "good",
+        4: "again-then-good",
+        5: "good-then-again",
+        0: "lapse",
+    }
+
+    # Count how many non-lapse ratings we have for rowspan
+    learning_count = sum(1 for r in ratings.items() if r[0] != 0)
+
+    first_learning = True
+    not_enough_data = True
+    for rating, style in ratings.items():
+        stats = results["stats"].get(rating, {})
+        if not stats:
+            results["stability"][rating] = 86400
+            state_cell = ""
+            if rating == 0:
+                state_cell = '<td class="trl"><b>Relearning</b></td>'
+            elif first_learning:
+                state_cell = (
+                    f'<td class="trl" rowspan="{learning_count}"><b>Learning</b></td>'
+                )
+                first_learning = False
+
+            html += f"""
+            <tr>
+                {state_cell}
+                <td class="trl"><span class="{style}"><b>{style.replace('-', ' ').title()}</b></span></td>
+                <td class="trr">N/A</td>
+                <td class="trr">N/A</td>
+                <td class="trr">N/A</td>
+                <td class="trr">N/A</td>
+                <td class="trr">N/A</td>
+                <td class="trr">N/A</td>
+                <td class="trr">N/A</td>
+                <td class="trr">N/A</td>
+                <td class="trr">N/A</td>
+                <td class="trr">N/A</td>
+            </tr>"""
+            continue
+
+        not_enough_data = False
+        state_cell = ""
+        if rating == 0:
+            state_cell = '<td class="trl"><b>Relearning</b></td>'
+        elif first_learning:
+            state_cell = (
+                f'<td class="trl" rowspan="{learning_count}"><b>Learning</b></td>'
+            )
+            first_learning = False
+
+        html += f"""
+            <tr>
+                {state_cell}
+                <td class="trl"><span class="{style}"><b>{style.replace('-', ' ').title()}</b></span></td>
+                <td class="trr">{stats['r1']}</td>
+                <td class="trr">{format_time(stats['delay_q1'])}</td>
+                <td class="trr">{stats['r2']}</td>
+                <td class="trr">{format_time(stats['delay_q2'])}</td>
+                <td class="trr">{stats['r3']}</td>
+                <td class="trr">{format_time(stats['delay_q3'])}</td>
+                <td class="trr">{stats['r4']}</td>
+                <td class="trr">{stats['retention']}</td>
+                <td class="trr">{format_time(results['stability'][rating])}</td>
+                <td class="trr">{stats['count']}</td>
+            </tr>
+            """
+
+        if stats["retention"] == 1 or stats["retention"] == 0 or stats["count"] < 100:
+            results["stability"][rating] = 86400
+
+    html += (
+        f"""
+    <tr>
+        <td colspan="12" class="trl">
+            <strong>Desired retention:</strong>
+            <input type="number" id="desired-retention" value="0.9" step="0.01" min="0.7" max="0.98" />
+        </td>
+    </tr>
+    <tr>
+        <td colspan="12" class="trl">
+            <strong>Recommended learning steps</strong>: 
+            <span id="learning-steps"></span>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="12" class="trl">
+            <strong>Recommended relearning steps</strong>: 
+            <span id="relearning-steps"></span>
+        </td>
+    </tr>
+
+    <script>
+        const learningStepRow = document.querySelector('#learning-steps');
+        const relearningStepRow = document.querySelector('#relearning-steps');
+        const cutoff = 86400 / 2;
+        const stability = {results['stability']};
+
+        function formatTime (seconds) {{
+            const h = Math.round(seconds / 3600);
+            const m = Math.round(seconds / 60);
+            return h > 5 ? `${{Math.round(h)}}h`
+                : m > 5 ? `${{Math.round(m)}}m`
+                : `${{Math.round(seconds)}}s`;
+        }};
+
+
+        const DECAY = -0.5;
+        const FACTOR = Math.pow(0.9, (1 / DECAY)) - 1;
+
+        function calculateFactor(dr) {{
+            return 1 / FACTOR * (Math.pow(dr, (1 / DECAY)) - 1);
+        }}
+
+        function calculateStep(stability, factor) {{
+            const step = stability * factor;
+            return (step >= cutoff || Number.isNaN(step)) ? "" : formatTime(Math.max(step, 1));
+        }};
+
+        function calculateSteps() {{
+            const factor = calculateFactor(parseFloat(document.querySelector("#desired-retention").value));
+
+            const learningStep1 = calculateStep(stability[1], factor);
+            const learningStep2 = calculateStep(Math.min(stability[2] * 2 - stability[1], stability[3], stability[4]), factor);
+
+            learningStepRow.innerText = (!learningStep1 && !learningStep2) 
+                ? "You don't need learning steps" 
+                : `${{learningStep1}} ${{learningStep2}}`;
+
+            const relearningStep = calculateStep(stability[0], factor);
+            relearningStepRow.innerText = !relearningStep 
+                ? "You don't need relearning steps" 
+                : relearningStep;
+        }};
+
+        calculateSteps();
+
+        document.querySelector('#desired-retention').addEventListener('input', calculateSteps);
+    </script>
+    """
+        if not not_enough_data
+        else ""
+    )
+
+    html += "</table>"
+    html += (
+        "<table style='text-align: left'><tr><td style='padding: 5px'>"
+        + "<summary>Interpretation</summary><ul>"
+        "<li>This table shows <b>the average time you wait before rating each card the next time</b> (Time Delay) based on your <b>first rating of the day for each card in the deck</b> (Again or Hard or Good or Lapse).</li>"
+        + "<li>It also shows <b>how well you remember a card after each subsequent rating (after its first rating) on average.</b></li>"
+        + "<li>The subsequent ratings after the first ratings of all cards in the deck are gathered and sorted by ascending order of the Time Delay (not shown on the table) and are then grouped into 4 groups (Time Delay 1<2<3<4).</li>"
+        + "<li>The 4 groups are further split and assigned to whatever the first rating of the cards was (Again or Hard or Good or Lapse). Therefore, each First Rating has 4 groups of subsequent ratings (Groups 1,2,3,4).</li>"
+        + "<li>Average Retention rates (R̅₁, R̅₂, R̅₃, R̅₄) for each group of subsequent ratings and the Average Overall Retention (R̅) for the first ratings are shown. Based on this, the average stability for cards after the first rating of the day (Again or Hard or Good or Lapse) is calculated.</li>"
+        + "<li>T<sub>X%</sub> means that X% of the cards in this deck with a first rating (Again or Hard or Good or Lapse) are delayed by this amount of time or less till the next rating.</li>"
+        + "<li>Recommended (re)learning steps are calculated from stability and desired retention. The 1st learning step is based S(Again). The 2nd learning step is based on the minimum of {S(Hard)* 2 - S(Again), S(Good), S(Again Then Good)}. The relearning step is base on S(Lapse).</li>"
+        + "</ul>"
+        "</td></tr></table>"
+    )
+    return self._section(title + html)
 
 
 def get_fsrs_stats(self: CollectionStats):
@@ -116,59 +308,28 @@ def get_fsrs_stats(self: CollectionStats):
         lim = " AND did IN %s" % lim
 
     (
-        retention,
-        stability,
-        load,
         card_cnt,
         estimated_total_knowledge,
-        estimated_total_knowledge_notes,
-        note_cnt,
         time_sum,
-    ) = retention_stability_load(lim)
+    ) = retention_stability(lim)
     i = []
-    _line_now(i, "Average predicted retention", f"{retention * 100: .2f}%")
-    _line_now(i, "Average stability", f"{round(stability)} days")
-    _line_now(i, "Daily Load", f"{round(load)} reviews/day")
-    i.append(
-        "<tr><td align=left style='padding: 5px'><b>Retention by Cards:</b></td></tr>"
-    )
-    _line_now(i, "Total Count", f"{card_cnt} cards")
-    _line_now(
-        i,
-        "Estimated total knowledge",
-        f"{estimated_total_knowledge} cards ({retention * 100:.2f}%)",
-    )
-    _line_now(i, "Total Time", f"{time_sum/3600:.1f} hours")
+    _line_now(i, "Studied cards", f"{card_cnt} cards")
+    _line_now(i, "Total review time", f"{time_sum/3600:.1f} hours")
     if time_sum > 0:
         _line_now(
             i,
             "Knowledge acquisition rate",
             f"{estimated_total_knowledge / (time_sum/3600):.1f} cards/hour",
         )
-    i.append(
-        "<tr><td align=left style='padding: 5px'><b>Retention by Notes:</b></td></tr>"
-    )
-    _line_now(i, "Total Count", f"{note_cnt} notes")
-    _line_now(
-        i,
-        "Estimated total knowledge",
-        f"{round(estimated_total_knowledge_notes)} notes ({(estimated_total_knowledge_notes / max(note_cnt, 1)) * 100:.2f}%)",
-    )
     title = CollectionStats._title(
         self,
         "FSRS Stats",
-        "Only calculated for cards with FSRS memory states",
     )
     stats_data = _lineTbl_now(i)
     interpretation = (
-        "<p>Note: Unless you have a huge backlog, the average predicted retention will be higher than your desired retention. For details, read the interpretation section.</p>"
-        + "<details><summary>Interpretation</summary><ul>"
-        + "<li><b>Average predicted retention</b>: the average probability of recalling a card today. Desired retention is the retention when the card is due. Average retention is the current retention of all cards, including those that are not yet due. These two values are different because most cards are not usually due. <b>The average predicted retention is calculated using FSRS formulas and depends on your parameters.</b> True retention is a measured value, not an algorithmic prediction. So, it doesn't change after changing the FSRS parameters.</li>"
-        + "<li><b>Stability</b>: the time required for the retention to fall from 100% to 90%.</li>"
-        + "<li><b>Load</b>: an estimate of the average number of cards to be reviewed daily (assuming review at the scheduled time without advancing or postponing). Load = 1/I<sub>1</sub> + 1/I<sub>2</sub> + 1/I<sub>3</sub> +...+ 1/I<sub>n</sub>, where I<sub>n</sub> is the current interval of the n-th card.</li>"
-        + "<li><b>Count</b>: the number of cards with FSRS memory states, excluding cards in the (re)learning stage.</li> "
-        + "<li><b>Estimated total knowledge</b>: the number of cards the user is expected to know today, calculated as the product of average predicted retention and count.</li>"
-        + "<li><b>Total time</b>: the amount of time spent doing reviews in Anki. This does not include time spent on making and editing cards, as well as time spent on reviewing suspended and deleted cards.</li>"
+        "<details><summary>Interpretation</summary><ul>"
+        + "<li><b>Studied cards</b>: the number of cards with FSRS memory states, excluding suspended cards.</li> "
+        + "<li><b>Total review time</b>: the amount of time spent doing reviews in Anki. This does not include the time spent on reviewing suspended and deleted cards.</li>"
         + "<li><b>Knowledge acquisition rate</b>: the number of cards memorized per hour of actively doing reviews in Anki, calculated as the ratio of total knowledge and total time. Larger values indicate efficient learning. This metric can be used to compare different learners. If your collection is very young, this number may initially be very low or very high.</li>"
         + "</ul></details>"
     )

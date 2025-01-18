@@ -33,6 +33,7 @@ const UBUNTU_DOCK_UUID = 'ubuntu-dock@ubuntu.com';
 let panelManager;
 let extensionChangedHandler;
 let startupCompleteHandler;
+let disabledUbuntuDock;
 let extensionSystem = Main.extensionManager;
 
 export let DTP_EXTENSION = null;
@@ -80,7 +81,11 @@ export default class DashToPanelExtension extends Extension {
 
         if (!reset) {
             extensionSystem.disconnect(extensionChangedHandler);
-            extensionSystem.enableExtension(UBUNTU_DOCK_UUID);
+
+            if (disabledUbuntuDock) {
+                disabledUbuntuDock = false;
+                extensionSystem.enableExtension(UBUNTU_DOCK_UUID);
+            }
 
             delete global.dashToPanel;
 
@@ -97,9 +102,15 @@ export default class DashToPanelExtension extends Extension {
 }
 
 function _enable(extension) {
-    extensionSystem.disableExtension(UBUNTU_DOCK_UUID);
+    let enabled = global.settings.get_strv('enabled-extensions');
 
-    if (panelManager) return; //already initialized
+    if (enabled?.indexOf(UBUNTU_DOCK_UUID) >= 0) {
+        disabledUbuntuDock = true;
+        extensionSystem.disableExtension(UBUNTU_DOCK_UUID);
+    }
+
+    if (panelManager)
+        return panelManager.toggleDash(); // already initialized but ubuntu dock restored the original dash on disable
 
     SETTINGS = extension.getSettings('org.gnome.shell.extensions.dash-to-panel');
     DESKTOPSETTINGS = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});

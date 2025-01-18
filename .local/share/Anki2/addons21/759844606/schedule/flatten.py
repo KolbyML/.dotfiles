@@ -1,4 +1,3 @@
-from collections import defaultdict
 from ..configuration import Config
 from ..utils import *
 from anki.decks import DeckManager
@@ -48,10 +47,6 @@ def flatten_background(did, desired_flatten_limit):
     start_time = time.time()
     config = Config()
     config.load()
-
-    easy_days_review_ratio_list = []
-    if config.load_balance:
-        easy_days_review_ratio_list = config.easy_days_review_ratio_list
 
     DM = DeckManager(mw.col)
     if did is not None:
@@ -148,14 +143,9 @@ def flatten_background(did, desired_flatten_limit):
         rest_cnt = len(cards_to_flatten) - cnt
         if rest_cnt <= 0:
             break
-        due_date = current_date + timedelta(days=new_due - today)
+        # due_date = current_date + timedelta(days=new_due - today)
         due_cnt = due_cnt_per_day[new_due]
-        today_limit = (
-            int(desired_flatten_limit * easy_days_review_ratio_list[due_date.weekday()])
-            if config.load_balance
-            else desired_flatten_limit
-        )
-        quota = today_limit - due_cnt
+        quota = desired_flatten_limit - due_cnt
         if quota <= 0:
             continue
         start_index = cnt

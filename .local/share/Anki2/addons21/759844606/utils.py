@@ -1,6 +1,6 @@
 import re
 from aqt.utils import tooltip, getText, showWarning, showInfo, askUser
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from typing import List, Dict, Tuple
 from anki.stats_pb2 import CardStatsResponse
 from anki.cards import Card
@@ -21,7 +21,6 @@ import math
 import random
 import time
 from datetime import date, datetime, timedelta
-from anki.utils import int_version
 
 
 FSRS_ENABLE_WARNING = (
@@ -52,6 +51,10 @@ def reset_ivl_and_due(cid: int, revlogs: List[CardStatsResponse.StatsRevlogEntry
     mw.col.update_card(card)
 
 
+def get_revlogs(cid: int):
+    return mw.col.get_review_logs(cid)
+
+
 def filter_revlogs(
     revlogs: List[CardStatsResponse.StatsRevlogEntry],
 ) -> List[CardStatsResponse.StatsRevlogEntry]:
@@ -65,7 +68,7 @@ def filter_revlogs(
 
 
 def get_last_review_date(card: Card):
-    revlogs = mw.col.card_stats_data(card.id).revlog
+    revlogs = get_revlogs(card.id)
     try:
         last_revlog = filter_revlogs(revlogs)[0]
         last_review_date = (
@@ -158,10 +161,7 @@ def sched_current_date() -> date:
     return (now - timedelta(hours=next_day_start_at)).date()
 
 
-if int_version() < 231200:
-    DECAY = -1
-else:
-    DECAY = -0.5  # FSRS-4.5
+DECAY = -0.5
 FACTOR = 0.9 ** (1 / DECAY) - 1
 
 
@@ -237,3 +237,14 @@ def ask_one_way_sync():
         + "and not synced them to this device yet, please do so before you proceed.\n"
         + "Do you want to proceed?"
     )
+
+
+def format_time(x, pos=None):
+    if x < 60:
+        return f"{x:.0f}s"
+    elif x < 3600:
+        return f"{x/60:.2f}m"
+    elif x < 86400:
+        return f"{x/3600:.2f}h"
+    else:
+        return f"{x/86400:.2f}d"

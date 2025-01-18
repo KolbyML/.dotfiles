@@ -15,10 +15,11 @@
 
 import aqt
 
+required_anki_version = (23, 10, 0)
 anki_version = tuple(int(segment) for segment in aqt.appVersion.split("."))
 
-if anki_version < (2, 1, 45):
-    raise Exception("Minimum Anki version supported: 2.1.45")
+if anki_version < required_anki_version:
+    raise Exception(f"Minimum Anki version supported: {required_anki_version[0]}.{required_anki_version[1]}.{required_anki_version[2]}")
 
 import base64
 import glob
@@ -310,7 +311,7 @@ class AnkiConnect:
         val = note.fields[0]
         if not val.strip():
             return 1
-        csum = anki.utils.fieldChecksum(val)
+        csum = anki.utils.field_checksum(val)
 
         # Create dictionary of deck ids
         dids = None
@@ -358,13 +359,13 @@ class AnkiConnect:
 
     def getCard(self, card_id: int) -> Card:
         try:
-            return self.collection().getCard(card_id)
+            return self.collection().get_card(card_id)
         except NotFoundError:
             self.raiseNotFoundError('Card was not found: {}'.format(card_id))
 
     def getNote(self, note_id: int) -> Note:
         try:
-            return self.collection().getNote(note_id)
+            return self.collection().get_note(note_id)
         except NotFoundError:
             self.raiseNotFoundError('Note was not found: {}'.format(note_id))
 
@@ -567,7 +568,7 @@ class AnkiConnect:
         self.startEditing()
 
         did = self.collection().decks.id(deck)
-        mod = anki.utils.intTime()
+        mod = anki.utils.int_time()
         usn = self.collection().usn()
 
         # normal cards
@@ -612,7 +613,7 @@ class AnkiConnect:
         collection = self.collection()
 
         config['id'] = str(config['id'])
-        config['mod'] = anki.utils.intTime()
+        config['mod'] = anki.utils.int_time()
         config['usn'] = collection.usn()
         if int(config['id']) not in [c['id'] for c in collection.decks.all_config()]:
             return False
@@ -741,7 +742,6 @@ class AnkiConnect:
         nCardsAdded = collection.addNote(ankiNote)
         if nCardsAdded < 1:
             raise Exception('The field values you have provided would make an empty question on all cards.')
-        collection.autosave()
 
         return ankiNote.id
 
@@ -820,18 +820,9 @@ class AnkiConnect:
             if name in ankiNote:
                 ankiNote[name] = value
 
-        audioObjectOrList = note.get('audio')
-        self.addMedia(ankiNote, audioObjectOrList, util.MediaType.Audio)
+        self.addMediaFromNote(ankiNote, note)
 
-        videoObjectOrList = note.get('video')
-        self.addMedia(ankiNote, videoObjectOrList, util.MediaType.Video)
-
-        pictureObjectOrList = note.get('picture')
-        self.addMedia(ankiNote, pictureObjectOrList, util.MediaType.Picture)
-
-        ankiNote.flush()
-
-        self.collection().autosave()
+        self.collection().update_note(ankiNote, skip_undo_entry=True);
 
 
     @util.api()
@@ -895,11 +886,8 @@ class AnkiConnect:
         # Update the tags
         anki_note.tags = new_tags
 
-        # Flush changes to ensure they are saved
-        anki_note.flush()
-
-        # Save changes to the collection
-        collection.autosave()
+        # Update note to ensure changes are saved
+        collection.update_note(anki_note, skip_undo_entry=True);
 
     @util.api()
     def updateNoteTags(self, note, tags):
@@ -953,7 +941,7 @@ class AnkiConnect:
             if note.has_tag(tag_to_replace):
                 note.remove_tag(tag_to_replace)
                 note.add_tag(replace_with_tag)
-                note.flush()
+                self.collection().update_note(note, skip_undo_entry=True);
 
         self.window().requireReset()
         self.window().progress.finish()
@@ -970,7 +958,7 @@ class AnkiConnect:
             if note.has_tag(tag_to_replace):
                 note.remove_tag(tag_to_replace)
                 note.add_tag(replace_with_tag)
-                note.flush()
+                self.collection().update_note(note, skip_undo_entry=True);
 
         self.window().requireReset()
         self.window().progress.finish()
@@ -989,7 +977,7 @@ class AnkiConnect:
 
             couldSetEaseFactors.append(True)
             ankiCard.factor = easeFactors[i]
-            ankiCard.flush()
+            self.collection().update_card(ankiCard, skip_undo_entry=True)
 
         return couldSetEaseFactors
 
@@ -1019,7 +1007,7 @@ class AnkiConnect:
             ankiCard = self.getCard(card)
             for i, key in enumerate(keys):
                 setattr(ankiCard, key, newValues[i])
-            ankiCard.flush()
+            self.collection().update_card(ankiCard, skip_undo_entry=True)
             result.append(True)
         except Exception as e:
             result.append([False, str(e)])
@@ -1572,6 +1560,7 @@ class AnkiConnect:
                     'left': card.left,
                     'mod': card.mod,
                     'nextReviews': list(nextReviews),
+                    'flags': card.flags,
                 })
             except NotFoundError:
                 # Anki will give a NotFoundError if the card ID does not exist.
