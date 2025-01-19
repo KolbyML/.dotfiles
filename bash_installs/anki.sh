@@ -1,13 +1,22 @@
 #!/bin/bash
 
+# Configuration: Set to true for beta (pre-release), false for stable release
+prerelease=false
+
 # GitHub repository URL
 REPO="ankitects/anki"
 
 # Fetch the list of releases JSON data from GitHub API
 response=$(curl -s "https://api.github.com/repos/$REPO/releases")
 
-# Extract the URL of the latest Linux Qt6 tar.zst file for a pre-release
-download_url=$(echo "$response" | jq -r '.[] | select(.prerelease == true) | .assets[] | select(.name | test("anki-.*-linux-qt6\\.tar\\.zst")) | .browser_download_url' | head -n 1)
+# Determine whether to look for pre-releases or stable releases
+if [[ "$prerelease" == true ]]; then
+    echo "Looking for beta (pre-release) version..."
+    download_url=$(echo "$response" | jq -r '.[] | select(.prerelease == true) | .assets[] | select(.name | test("anki-.*-linux-qt6\\.tar\\.zst")) | .browser_download_url' | head -n 1)
+else
+    echo "Looking for stable release..."
+    download_url=$(echo "$response" | jq -r '.[] | select(.prerelease == false) | .assets[] | select(.name | test("anki-.*-linux-qt6\\.tar\\.zst")) | .browser_download_url' | head -n 1)
+fi
 
 # Check if a URL was found
 if [[ -z "$download_url" ]]; then
